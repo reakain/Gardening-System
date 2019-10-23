@@ -4,93 +4,201 @@ using CleverCrow.Fluid.BTs.Tasks;
 using CleverCrow.Fluid.BTs.Trees;
 using UnityEngine;
 
-public class GardenPlot : MonoBehaviour
+namespace GardenSystem
 {
-    [SerializeField]
-    private BehaviorTree _tree;
-
-    bool isSeeded = false;
-    bool isTilled = false;
-    bool isWatered = false;
-
-    int days = 0;
-    int season = 0;
-
-    Plant plant;
-
-    void Awake()
+    public class GardenPlot : MonoBehaviour
     {
-        _tree = new BehaviorTreeBuilder(gameObject)
-            .Selector()
-                .Condition("Is Tilled", () => isTilled)
-                .Sequence("Erode")
-                    .Condition("Is Seeded", () => !isSeeded )
-                    .Do("Erode", () =>
-                    {
-                        isTilled = false;
-                        // Change sprite
-                        return TaskStatus.Success;
-                    })
-                .End()
-                .Sequence("Grow")
-                    .Condition("Is Seeded", () => isSeeded)
-                    .Condition("In Season", () => season == plant.season)
-                    .Condition("Is Watered", () => isWatered)
-                    .Do("Grow", () =>
-                    {
-                        days++;
-                        if (days >= plant.currentStage.daysInStage)
-                        {
-                            days = 0;
-                            plant.GoToNextStage();
-                            // Update sprite
-                        }
-                        return TaskStatus.Success;
-                    })
-                .End()
-                .Sequence("Shrivel")
-                .End()
-            .End()
-            .Build();
-    }
+        [SerializeField]
+        private BehaviorTree _tree;
+        float dayTime = 0f;
+        float dayTimer = 20f;
+        [SerializeField] SpriteRenderer plotSprite;
+        [SerializeField] SpriteRenderer plantSprite;
+        [SerializeField] Sprite emptySprite;
+        [SerializeField] Sprite tilledSprite;
+        [SerializeField] Sprite shrivelSprite;
+        [SerializeField] Color waterColor = new Color(124f / 256f, 120f / 256f, 142f / 256f);
 
-    // Update is called once per frame
-    void Update()
-    {
-        _tree.Tick();
-    }
+        [SerializeField] bool isSeeded = false;
+        [SerializeField] bool isTilled = false;
+        [SerializeField] bool isWatered = false;
+        [SerializeField] bool isShriveled = false;
+        [SerializeField] bool inSeason = false;
 
-    void NewDay()
-    {
-        // Get day count for grow
-        _tree.Tick();
+        [SerializeField] int days = 0;
+        [SerializeField] Season season = Season.Spring;
+        [SerializeField] int shrivelDays = 0;
 
-    }
+        [SerializeField] Plant plant;
 
-    void NewSeason()
-    {
-        // Get the new season
-        // change tile sprite
-    }
-
-    public void Water()
-    {
-        isWatered = true;
-        // Change tile sprite to water
-    }
-
-    public void Till()
-    {
-        isTilled = true;
-        // Change the tile sprite
-    }
-
-    public void Harvest()
-    {
-        if(plant.currentStage.harvestable)
+        void Awake()
         {
-            // Get your produce
-            // Do something with the plot??
+            plotSprite = GetComponent<SpriteRenderer>();
+            plotSprite.sprite = emptySprite;
+            plotSprite.color = Color.white;
+            plantSprite.sprite = null;
+            
+            _tree = new BehaviorTreeBuilder(gameObject)
+                .Sequence()
+                    .Condition("Is Tilled", () => isTilled)
+                    .Selector()
+                        .Sequence("Not Planted")
+                            .Condition("Is Seeded", () => !isSeeded)
+                            .Do("Erode", () =>
+                            {
+                            isTilled = false;
+                            isWatered = false;
+                            plotSprite.sprite = emptySprite;
+                            plotSprite.color = Color.white;
+                            plantSprite.sprite = null;
+                            plant = null;
+                            return TaskStatus.Success;
+                            })
+                        .End()
+                        .Sequence("In Season")
+                            .Condition("In Season", () => inSeason)
+                            .Sequence("Grow")
+                                .Condition("Is Watered", () => isWatered)
+                                .Do("Grow", () =>
+                                {
+                                    isWatered = false;
+                                    plotSprite.color = Color.white;
+                                    days++;
+                                    if (days >= plant.currentStage.daysInStage)
+                                    {
+                                        days = 0;
+                                        plant.GoToNextStage();
+                                        // Update sprite
+                                        plantSprite.sprite = plant.currentStage.sprite;
+                                    }
+                                    return TaskStatus.Success;
+                                })
+                            .End()
+                            .Sequence("Shrivel Countdown")
+                                .Condition("Is Watered", () => !isWatered)
+                                .Do("Countdown", () =>
+                                {
+                                    shrivelDays++;
+                                    if(shrivelDays > plant.shrivelTime)
+                                    {
+                                        Shrivel();
+                                    }
+                                    return TaskStatus.Success;
+                                })
+                            .End()
+                        .End()
+                        .Do("Shrivel", () =>
+                        {
+                            Shrivel();
+                            return TaskStatus.Success;
+                        })
+                        .End()
+                    .End()
+                .End()
+                .Build();
         }
+
+        // Update is called once per frame
+        void Update()
+        {
+            dayTime += Time.deltaTime;
+            //_tree.Tick();
+            if(dayTime > dayTimer)
+            {
+                NewDay();
+                dayTime = 0f;
+            }
+        }
+
+        void NewDay()
+        {
+            // Get day count for grow
+            _tree.Tick();
+
+        }
+
+        void NewSeason()
+        {
+            // Get the new season
+            // change tile sprite
+            if (plant != null)
+            {
+                inSeason = plant.InSeason(season);
+            }
+        }
+
+        void Shrivel()
+        {
+            isTilled = false;
+            isShriveled = true;
+            isWatered = false;
+            plant = null;
+            days = 0;
+            shrivelDays = 0;
+            plotSprite.color = Color.white;
+            plotSprite.sprite = tilledSprite;
+            plantSprite.sprite = shrivelSprite;
+        }
+
+        public void Water()
+        {
+            if (isTilled)
+            {
+                isWatered = true;
+                Debug.Log("Watered tile");
+                plotSprite.color = waterColor;
+            }
+        }
+
+        public void Till()
+        {
+            isTilled = true;
+            Debug.Log("Tilled tile");
+            // Change the tile sprite
+            plotSprite.sprite = tilledSprite;
+            plantSprite.sprite = null;
+            plant = null;
+            isShriveled = false;
+            days = 0;
+            shrivelDays = 0;
+        }
+
+        public void Harvest()
+        {
+            Debug.Log("Try harvest tile");
+            if (plant != null && plant.currentStage.harvestable)
+            {
+                Debug.Log("Harvested!");
+                plant.Harvest();
+                if (plant.multiHarvest)
+                {
+                    plantSprite.sprite = plant.currentStage.sprite;
+                }
+                else
+                {
+                    plantSprite.sprite = null;
+                    plant = null;
+                }
+            }
+        }
+
+        public void Seed(Plant newPlant)
+        {
+            if (isTilled && plant == null)
+            {
+                if (newPlant.InSeason(season))
+                {
+                    plant = newPlant;
+                    plantSprite.sprite = plant.currentStage.sprite;
+                    inSeason = true;
+                }
+            }
+        }
+    }
+
+    [System.Serializable]
+    public class GardenPlotData
+    {
+
     }
 }
